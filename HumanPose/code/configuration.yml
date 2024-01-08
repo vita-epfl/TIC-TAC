@@ -1,0 +1,25 @@
+experiment_name: "TIC-TAC"
+
+trials: 1
+use_hessian: False
+
+save_path: "/absolute/path/to/directory/"
+
+dataset: {
+  mpii_params: {precached: False}
+  # precached: True implies this exists, False does the post-process and also saves a copy
+}
+
+experiment_settings: {
+  epochs: 100,       # Default: 100
+  lr: 0.01,          # Default: 1e-2
+  batch_size: 32,    # Default: 32
+}
+
+architecture: {
+  hourglass: {nstack: 2, channels: 64},
+  aux_net: {fc: [64, 64, 64]}
+}
+
+# If RAM permits, load all images into memory
+load_images: True
