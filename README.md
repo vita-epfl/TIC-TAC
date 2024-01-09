@@ -127,19 +127,3 @@ The main files to run the experiments are: `univariate.py, multivariate.py, uci.
 Stopping a container once the code execution is complete can be done using:
 1. `docker ps`: List running containers
 2. `docker stop <container id>`
-
-## Citation <a name="citation"></a>
-
-If you found this code useful, please consider citing our paper.
-Also, **_feedback is welcome!_**
-
-Please contact me at _megh.shukla [at] epfl.ch_ if you have any questions!
-
-```
-@article{shukla2023tic,
-  title={TIC-TAC: A Framework To Learn And Evaluate Your Covariance},
-  author={Shukla, Megh and Salzmann, Mathieu and Alahi, Alexandre},
-  journal={arXiv preprint arXiv:2310.18953},
-  year={2023}
-}
-```
