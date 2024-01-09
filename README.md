@@ -12,7 +12,7 @@ Code repository for "TIC-TAC: A Framework To Learn And Evaluate Your Covariance"
 
 ## Installation: Docker (recommended) or PIP <a name="installation"></a>
 
-**Docker**: We provide a Docker image which is pre-installed with all required packages. We recommend using this image to ensure reproducibility of our results. Using this image requires setting up Docker on Ubuntu: Docker (https://docs.docker.com/engine/install/ubuntu/#installation-methods). Once installed, we can use the provided `docker-compose.yaml` file to start our environment with the following command:  `docker-compose run --rm covariance` <br>
+**Docker**: We provide a Docker image which is pre-installed with all required packages. We recommend using this image to ensure reproducibility of our results. Using this image requires setting up Docker on Ubuntu: [Docker](https://docs.docker.com/engine/install/ubuntu/#installation-methods). Once installed, we can use the provided `docker-compose.yaml` file to start our environment with the following command:  `docker-compose run --rm covariance` <br>
 
 **PIP**: In case using Docker is not possible, we provide a `requirements.txt` file containing a list of all the packages which can be installed with `pip`.  We recommend setting up a new virtual environment ([link](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/)) and install the packages using:  `pip install -r requirements.txt`
 
@@ -115,9 +115,6 @@ The repository contains four main folders corresponding to the four experiments:
     ├── univariate.py
     └── utils.py
 ```
-
-Running `python main.py` in the `code` folder executes the code, with configurations specified in `configuration.yml`
-
 
 ## Code Execution <a name="execution"></a>
 We first need to activate the environment. This requires us to start the container: `docker-compose run --rm covariance`, which loads our image containing all the pre-installed packages. Alternatively, we can activate the virtual environment which contains packages installed via `pip`.
