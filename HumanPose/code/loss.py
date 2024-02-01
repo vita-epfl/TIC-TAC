@@ -1,6 +1,6 @@
 import torch
 
-from utils.kl_divergence import get_positive_definite_matrix, get_tic_covariance
+from utils.tic import get_positive_definite_matrix, get_tic_covariance
 from models.stacked_hourglass.StackedHourglass import PoseNet as Hourglass
 
 

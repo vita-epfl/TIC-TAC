@@ -35,7 +35,7 @@ class Sampling(torch.utils.data.Dataset):
 
 
     def __getitem__(self, i: int) -> (float, float, int):
-        return self.x[i], self.y[i], i
+        return self.x[i].reshape(1), self.y[i].reshape(1), i
 
     
     def get_amplitude(self, x: np.array) -> np.array:

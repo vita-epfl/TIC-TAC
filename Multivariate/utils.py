@@ -1,4 +1,5 @@
 import os
+from math import log, pi
 from typing import Callable
 
 
@@ -66,7 +67,8 @@ def pairwise_matmul_with_trace(tensor: torch.Tensor) -> torch.Tensor:
     return torch.sum(ab_diag, dim=-1)
 
 
-def calculate_tac_per_sample(y_pred, covariance_hat, y_gt, loss_placeholder):
+def calculate_tac_per_sample(y_pred: torch.Tensor, covariance_hat: torch.Tensor,
+                             y_gt: torch.Tensor, loss_placeholder: torch.Tensor) -> torch.Tensor:
     """
     Compute TAC by observing how i-th dimension by observing other dimensions
     """
@@ -98,6 +100,23 @@ def calculate_tac_per_sample(y_pred, covariance_hat, y_gt, loss_placeholder):
         y_obs[[0, i]] = y_obs[[i, 0]]
 
     return loss_placeholder
+
+
+def calculate_ll_per_sample(y_pred: torch.Tensor, precision_hat: torch.Tensor,
+                            y_gt: torch.Tensor, loss_placeholder: torch.Tensor) -> torch.Tensor:
+    """
+    Compute LL for each sample
+    """
+
+    out_dim = y_gt.shape[-1]
+
+    ll = -0.5 * (
+            (out_dim * log(2 * pi))
+          - (torch.logdet(precision_hat))
+          + (torch.matmul(torch.matmul((y_gt - y_pred).unsqueeze(0), precision_hat),
+                          (y_gt - y_pred).unsqueeze(1)).squeeze()))
+    
+    return ll
 
 
 def _predictions(model: Regressor) -> Callable[[torch.Tensor], torch.Tensor]:
@@ -146,33 +165,40 @@ def get_tic_covariance(x: torch.Tensor, model: Regressor,
 
 
 # Plotting functions
-def plot_comparison_tac(training_pkg: dict, dimensions: range, experiment_name: str) -> None:
+def plot_comparison(training_pkg: dict, dimensions: range,
+                    experiment_name: str, metric: str) -> None:
     """
-    Compare the TAC for various methods. Plots the TAC vs dimensionality of the observations
+    Compare the metric vs dimensionality for various observations
     """
     training_methods = training_pkg['training_methods']
 
-    color = ['purple', 'green', 'crimson', 'lightseagreen', 'black', 'coral']
-    marker = ['s', '*', 'o', '.', '1', 'x']
+    color = ['purple', 'green', 'crimson', 'steelblue', 'goldenrod', 'coral']
+    marker = ['s', '*', 'o', '.', 'x', 'D']
 
     for method in training_methods:
 
         c = color.pop()
         m = marker.pop()
         
-        plt.plot(list(dimensions), training_pkg[method]['tac']['overall'].cpu().numpy(),
-                 label=method, color=c, marker=m)
+        mean = training_pkg[method][metric]['mean'].cpu().numpy()
+        std = training_pkg[method][metric]['std'].cpu().numpy()
+
+        plt.plot(list(dimensions), mean, label=method, color=c, marker=m)
+        plt.fill_between(list(dimensions), mean + std, mean - std, alpha=0.25, color=c)
     
-    plt.tick_params(axis='both', which='major', labelsize=8)
-    plt.tick_params(axis='both', which='minor', labelsize=6)
-    plt.xlabel('Dimensions',fontsize=8)
-    plt.ylabel('TAC', fontsize=8)
+    plt.tick_params(axis='both', which='major', labelsize=12)
+    plt.tick_params(axis='both', which='minor', labelsize=10)
+    plt.xlabel('Dimensions',fontsize=12)
+    plt.ylabel('{}'.format(metric.upper()), fontsize=12)
     plt.legend(fontsize=12)
-    plt.savefig(os.path.join(experiment_name, "TAC.pdf"), format='pdf', bbox_inches="tight", dpi=300)
+    plt.savefig(os.path.join(experiment_name, "{}.pdf".format(metric.upper())),
+                format='pdf', bbox_inches="tight", dpi=300)
     plt.close()
 
 
 # Batched versions
 calculate_tac = vmap(calculate_tac_per_sample, in_dims=(0, 0, 0, 0))
+
+calculate_ll = vmap(calculate_ll_per_sample, in_dims=(0, 0, 0, 0))
 
 batched_hessian_var = vmap(pairwise_matmul_with_trace)

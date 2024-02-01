@@ -1,7 +1,6 @@
 # System imports
 import os
 import copy
-import subprocess
 from tqdm import tqdm
 
 
@@ -18,16 +17,21 @@ from regressor import Regressor
 
 from utils import check_nan_in_model, get_tic_variance, plot_sine
 
-from loss import mse_gradient, nll_gradient
-from loss import beta_nll_gradient, faithful_gradient
-from loss import tic_gradient
+from loss import mse_loss, nll_loss
+from loss import beta_nll_loss, faithful_loss
+from loss import natural_laplace_loss, tic_loss
+
+
+# Imports for natural laplace
+from utils_natural_laplace.utilities import Regressor_NaturalHead
+from utils_natural_laplace.utilities import NaturalLaplace
 
 
 # Matplotlilb settings
 plt.switch_backend('agg')
 plt.style.use('ggplot')
 plt.rcParams['figure.dpi'] = 300
-plt.rcParams["figure.figsize"] = (45,6)
+plt.rcParams["figure.figsize"] = (55,6)
 
 
 ###### Configuration ######
@@ -47,12 +51,12 @@ os.mkdir(os.path.join(experiment_name, 'PDF'))
 
 # Training config
 batch_size = 32
-learning_rate = 3e-4
+learning_rate = 1e-3
 
 # Architecture
 latent_dim = 50
-mu_blocks = 5
-var_blocks = 5
+mu_blocks = 2
+var_blocks = 2
 
 sample_min = -5.0
 sample_max = 5.0
@@ -67,9 +71,9 @@ N = 1000
 # Training variables: Beta-NLL
 Beta_BetaNLL = 0.5
 
-training_methods = ['MSE', 'NLL', 'Beta-NLL', 'Faithful', 'TIC']
+training_methods = ['MSE', 'NLL', 'Beta-NLL', 'Faithful', 'Natural Laplace', 'NLL: TIC']
 
-#To print out the entire matrix
+# To print out the entire matrix
 np.set_printoptions(precision=4)
 np.set_printoptions(linewidth=200)
 torch.set_printoptions(linewidth=200)
@@ -96,13 +100,16 @@ def train(sampler: Sampling, network: Regressor) -> None:
             training_pkg[method]['optimizer'],
             factor=0.25, patience=10, cooldown=0, min_lr=1e-6, verbose=True)
 
+    natural_laplace = NaturalLaplace(training_pkg['Natural Laplace']['network'], sampler)
+
     for e in range(epochs):
         print('Epoch: {}/{}'.format(e+1,  epochs))
         
+        # Training epoch
         for x, y, i in tqdm(batcher, ascii=True, position=0, leave=True):
             
-            x = x.unsqueeze(1).type(torch.float32).cuda()
-            y = y.unsqueeze(1).type(torch.float32).cuda()
+            x = x.type(torch.float32).cuda()
+            y = y.type(torch.float32).cuda()
 
             for method in training_methods:
 
@@ -112,19 +119,23 @@ def train(sampler: Sampling, network: Regressor) -> None:
                 model.train()
 
                 if method == 'MSE':
-                    loss = mse_gradient(model, x, y)
+                    loss = mse_loss(model, x, y)
 
                 elif method == 'NLL':
-                    loss = nll_gradient(model, x, y)
+                    loss = nll_loss(model, x, y)
 
                 elif method == 'Beta-NLL':
-                    loss = beta_nll_gradient(model, x, y, Beta_BetaNLL)
+                    loss = beta_nll_loss(model, x, y, Beta_BetaNLL)
 
                 elif method == 'Faithful':
-                    loss = faithful_gradient(model, x, y)
+                    loss = faithful_loss(model, x, y)
 
-                elif method == 'TIC':
-                    loss = tic_gradient(model, x, y)
+                elif method == 'Natural Laplace':
+                    model = Regressor_NaturalHead(model)
+                    loss = natural_laplace_loss(model, x, y, natural_laplace)
+
+                elif method == 'NLL: TIC':
+                    loss = tic_loss(model, x, y)
 
                 else:
                     raise Exception
@@ -143,52 +154,83 @@ def train(sampler: Sampling, network: Regressor) -> None:
             training_pkg[method]['loss'] = torch.tensor(0., device='cuda', requires_grad=False)
         
         # Plot the predictions
-        with torch.no_grad():
-            fig, ax = plt.subplots(nrows=1, ncols=6, sharey='row', sharex='col')
-            plt.subplots_adjust(wspace=0, hspace=0)
+        if (e+1) % 10 == 0:
+            with torch.no_grad():
+                fig, ax = plt.subplots(nrows=1, ncols=7, sharey='row', sharex='col')
+                plt.subplots_adjust(wspace=0, hspace=0)
 
-            x_axis_plot = torch.linspace(sample_min, sample_max, steps=N).type(torch.float32).numpy()
-            x_axis = torch.from_numpy(x_axis_plot).unsqueeze(1).cuda()
-            
-            # First plot the ground truth mean and standard deviation
-            sine_wave = sampler.get_amplitude(x_axis_plot) * np.sin(frequency * x_axis_plot)
-            std_dev = sampler.get_std_dev(x_axis_plot)
-
-            ax = plot_sine(ax, x_axis_plot, sine_wave, sine_wave, std_dev, 'black', 'Ground Truth', 0)
-
-            # Plot the predicted mean and variance for all methods
-            color = ['purple', 'green', 'crimson', 'lightseagreen', 'coral']
-            for i, method in enumerate(training_methods, start=1):
+                x_axis_plot = torch.linspace(sample_min, sample_max, steps=N).type(torch.float32).numpy()
+                x_axis = torch.from_numpy(x_axis_plot).unsqueeze(1).cuda()
                 
-                model = training_pkg[method]['network']
-                model.eval()
+                # First plot the ground truth mean and standard deviation
+                sine_wave = sampler.get_amplitude(x_axis_plot) * np.sin(frequency * x_axis_plot)
+                std_dev = sampler.get_std_dev(x_axis_plot)
 
-                y_hat, vars_hat = model(x_axis)
-                var_hat = vars_hat[:, 0].unsqueeze(1)
+                ax = plot_sine(ax, x_axis_plot, sine_wave, sine_wave, std_dev, 'black', 'Ground Truth', 0)
 
-                if method == 'MSE':
-                    std_dev = torch.zeros_like(var_hat)
+                # Plot the predicted mean and variance for all methods
+                color = ['purple', 'goldenrod', 'green', 'crimson', 'steelblue', 'coral']
+                for i, method in enumerate(training_methods, start=1):
                     
-                elif method in ['NLL', 'Beta-NLL', 'Faithful']:
-                    std_dev = var_hat ** 0.5
+                    model = training_pkg[method]['network']
+                    model.eval()
+
+                    if method != 'Natural Laplace':
+                        y_hat, vars_hat = model(x_axis)
+                        var_hat = vars_hat[:, 0].unsqueeze(1)
+
+                    if method == 'MSE':
+                        std_dev = torch.zeros_like(var_hat)
                         
-                elif method in ['TIC']:
-                    variance_hat = get_tic_variance(x_axis, model, vars_hat)    
-                    std_dev = variance_hat ** 0.5
-                
-                else:
-                    raise Exception
+                    elif method in ['NLL', 'Beta-NLL', 'Faithful']:
+                        std_dev = var_hat ** 0.5
+                            
+                    elif method in ['NLL: TIC']:
+                        variance_hat = get_tic_variance(x_axis, model, vars_hat)    
+                        std_dev = variance_hat ** 0.5
 
-                std_dev = std_dev.squeeze().cpu().numpy()
-                y_hat = y_hat.squeeze().cpu().numpy()
-                c = color.pop()
+                    elif method in ['Natural Laplace']:
+                        with torch.enable_grad():
+                            prior_prec = torch.exp(natural_laplace.log_prior_prec)
+                            model = Regressor_NaturalHead(model)
 
-                # Plot Ground Truth
-                ax = plot_sine(ax, x_axis_plot, sine_wave, y_hat, std_dev, c, method, i)
+                            lap = natural_laplace.full_laplace(model, 'heteroscedastic_regression',
+                                sigma_noise=1, prior_precision=prior_prec, temperature=1.,
+                                backend=natural_laplace.backend, backend_kwargs=natural_laplace.backend_kwargs,
+                                **natural_laplace.la_kwargs)
+                            
+                            lap.fit(natural_laplace.dataloader)
 
-            plt.savefig(os.path.join(experiment_name, "Sine/file%07d.png" % (e+1)), format='png', bbox_inches="tight", dpi=150)
-            plt.savefig(os.path.join(experiment_name, "PDF/sine%07d.pdf" % (e+1)), format='pdf', bbox_inches="tight")
-            plt.close()
+                            # Skip plotting if natural laplace is unstable
+                            try:
+                                f_mu, f_var, y_var = lap(x_axis)
+                            except torch._C._LinAlgError:
+                                continue
+
+                        y_hat, f_var, y_var = f_mu.squeeze(), f_var.squeeze(), y_var.squeeze()
+                        std_dev = 2 * torch.pow(f_var + y_var, 0.5)
+
+                        del lap
+
+                    else:
+                        raise Exception
+
+                    std_dev = std_dev.squeeze().cpu().numpy()
+                    y_hat = y_hat.squeeze().cpu().numpy()
+                    c = color.pop()
+
+                    # Plot Ground Truth
+                    ax = plot_sine(ax, x_axis_plot, sine_wave, y_hat, std_dev, c, method, i)
+
+                fig.text(0.5, 0.0, 'x', ha='center', fontsize=32)
+                plt.savefig(os.path.join(experiment_name, "Sine/file%07d.png" % (e+1)), format='png', bbox_inches="tight", dpi=150)
+                plt.savefig(os.path.join(experiment_name, "PDF/sine%07d.pdf" % (e+1)), format='pdf', bbox_inches="tight")
+                plt.close()
+
+            # Only for Effective Bayesian Heteroscedastic Regression
+            regressor_with_natural_head = Regressor_NaturalHead(
+                training_pkg['Natural Laplace']['network'])
+            natural_laplace.hyperparameter_optimization(regressor_with_natural_head)
 
     # Save the models
     torch.save(training_pkg, os.path.join(experiment_name, "training_pkg.pt"))
@@ -212,17 +254,6 @@ print('\nPART 3: In-Progress: Training Comparison')
 network = Regressor(latent_dim, mu_blocks, var_blocks)
 train(sampler, network)
 print('PART 3: Completed: Training Comparison\n')
-
-print('\nPART 4: In-Progress: Creating Video')
-subprocess.call([
-    'ffmpeg',
-    '-framerate', '18',
-    '-i', os.path.join(os.getcwd(), experiment_name, 'Sine/file%07d.png'),
-    '-r', '18',
-    '-pix_fmt', 'yuv420p',
-    '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
-    os.path.join(os.getcwd(), experiment_name, 'sine_regression.mp4')])
-print('PART 4: Completed: Creating Video\n')
 
 
 # Print the configuration

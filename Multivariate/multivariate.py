@@ -15,13 +15,13 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau as ReduceLROnPlateau
 from sampler import Sampling
 from regressor import Regressor
 
-from utils import check_nan_in_model, calculate_tac
+from utils import check_nan_in_model, calculate_tac, calculate_ll
 from utils import get_positive_definite_matrix, get_tic_covariance
-from utils import plot_comparison_tac
+from utils import plot_comparison
 
-from loss import mse_gradient, nll_gradient, diagonal_gradient
-from loss import beta_nll_gradient, faithful_gradient
-from loss import tic_gradient
+from loss import mse_loss, nll_loss, diagonal_loss
+from loss import beta_nll_loss, faithful_loss
+from loss import tic_loss
 
 
 plt.switch_backend('agg')
@@ -52,7 +52,7 @@ epochs = 100
 Beta_BetaNLL = 0.5
 
 
-training_methods = ['MSE', 'Diagonal', 'NLL', 'Beta-NLL', 'Faithful', 'TIC']
+training_methods = ['MSE', 'NLL: Diagonal', 'NLL', 'Beta-NLL', 'Faithful', 'NLL: TIC']
 
 
 #To print out the entire matrix
@@ -97,22 +97,22 @@ def train(sampler: Sampling, network: Regressor, training_pkg: dict) -> dict:
                 model.train()
 
                 if method == 'MSE':
-                    loss = mse_gradient(model, x, q)
+                    loss = mse_loss(model, x, q)
 
                 elif method == 'NLL':
-                    loss = nll_gradient(model, x, q)
+                    loss = nll_loss(model, x, q)
 
-                elif method == 'Diagonal':
-                    loss = diagonal_gradient(model, x, q)
+                elif method == 'NLL: Diagonal':
+                    loss = diagonal_loss(model, x, q)
 
                 elif method == 'Beta-NLL':
-                    loss = beta_nll_gradient(model, x, q, Beta_BetaNLL)
+                    loss = beta_nll_loss(model, x, q, Beta_BetaNLL)
 
                 elif method == 'Faithful':
-                    loss = faithful_gradient(model, x, q)
+                    loss = faithful_loss(model, x, q)
 
-                elif method == 'TIC':
-                    loss = tic_gradient(model, x, q)
+                elif method == 'NLL: TIC':
+                    loss = tic_loss(model, x, q)
 
                 else:
                     raise Exception
@@ -134,17 +134,19 @@ def train(sampler: Sampling, network: Regressor, training_pkg: dict) -> dict:
     return training_pkg
 
 
-def task_agnostic_correlations(sampler: Sampling, training_pkg: dict,
-                               trial: int, dim: int) -> dict:
+def metric_calculator(sampler: Sampling, training_pkg: dict,
+                      trial: int, dim: int, metric: str) -> dict:
     """
     Evaluates Task Agnostic Correlations error. Lower is better.
+    Alternatively evaluates Log Likelihood. Higher is better.
     :param sampler: Instance of Sampling, returns samples from the multivariate distribution
     :param training_pkg: Corresponds to different training methods
     :param trial: Which trial (on run) is ongoing
     :param dim: Which dimension is ongoing
     """
 
-    batcher = torch.utils.data.DataLoader(sampler, num_workers=0, batch_size=batch_size, shuffle=False)
+    batcher = torch.utils.data.DataLoader(
+        sampler, num_workers=0, batch_size=batch_size, shuffle=False)
 
     for x, q, _, _, _, _, _ in tqdm(batcher, ascii=True, position=0, leave=True):
         x = x.type(torch.float32).cuda()
@@ -158,28 +160,42 @@ def task_agnostic_correlations(sampler: Sampling, training_pkg: dict,
             if method in ['NLL', 'Faithful']:
                 y_hat, precision_hat = model(x)
                 precision_hat = get_positive_definite_matrix(precision_hat, out_dim)
+                
+                # Stabilize inversion and avoid underflow
+                precision_hat += (1e-2 * torch.eye(out_dim, device='cuda').unsqueeze(0))
                 covariance_hat = torch.linalg.inv(precision_hat)
 
-            elif method in ['Diagonal', 'Beta-NLL']:
+            elif method in ['NLL: Diagonal', 'Beta-NLL']:
                 y_hat, var_hat = model(x)
                 var_hat = var_hat[:, :out_dim] ** 2
                 covariance_hat = torch.diag_embed(var_hat)
+                precision_hat = torch.linalg.inv(covariance_hat)
 
-            elif method in ['TIC']:
+            elif method in ['NLL: TIC']:
                 y_hat, cov_hat = model(x)
                 psd_matrix = get_positive_definite_matrix(cov_hat, out_dim)
                 covariance_hat = get_tic_covariance(x, model, cov_hat, psd_matrix)
+                precision_hat = torch.linalg.inv(covariance_hat)
 
             else:
                 assert method == 'MSE'
                 y_hat, cov_hat = model(x)
                 covariance_hat = torch.eye(y_hat.shape[1], device=y_hat.device).expand(
                     y_hat.shape[0], y_hat.shape[1], y_hat.shape[1])
+                precision_hat = torch.linalg.inv(covariance_hat)
 
             with torch.no_grad():
-                loss_placeholder = torch.zeros((y_hat.shape[0], y_hat.shape[1]), device=y_hat.device)
-                training_pkg[method]['tac']['{}'.format(dim)][trial] += calculate_tac(
-                    y_hat, covariance_hat, q, loss_placeholder).sum(dim=0)
+                if metric == 'tac':
+                    loss_placeholder = torch.zeros((y_hat.shape[0], y_hat.shape[1]),
+                                                   device=y_hat.device)
+                    training_pkg[method]['tac']['{}'.format(dim)][trial] += calculate_tac(
+                        y_hat, covariance_hat, q, loss_placeholder).sum(dim=0)
+
+                else:
+                    assert metric == 'll'
+                    loss_placeholder = torch.zeros(y_hat.shape[0], device=y_hat.device)
+                    training_pkg[method]['ll']['{}'.format(dim)][trial] += calculate_ll(
+                        y_hat, precision_hat, q, loss_placeholder).sum()
 
     return training_pkg
 
@@ -193,7 +209,12 @@ dimensions = range(min_out_dim, max_out_dim + 1, 2)
 training_pkg = dict()
 for method in training_methods:
     training_pkg[method] = dict()
-    training_pkg[method]['tac'] = {'overall': torch.inf * torch.ones(len(dimensions), device='cuda')}
+    training_pkg[method]['tac'] = {
+        'mean': torch.inf * torch.ones(len(dimensions), device='cuda'),
+        'std': torch.inf * torch.ones(len(dimensions), device='cuda')}
+    training_pkg[method]['ll'] = {
+        'mean': torch.inf * torch.ones(len(dimensions), device='cuda'),
+        'std': torch.inf * torch.ones(len(dimensions), device='cuda')}
 training_pkg['training_methods'] = training_methods
 
 
@@ -205,6 +226,9 @@ for k, out_dim in enumerate(dimensions):
     for method in training_methods:
         training_pkg[method]['tac']['{}'.format(out_dim)] = torch.zeros(
             (trials, out_dim), dtype=torch.float32, device='cuda')
+
+        training_pkg[method]['ll']['{}'.format(out_dim)] = torch.zeros(
+            trials, dtype=torch.float32, device='cuda')
 
     # Compute the TAC for each method across trials
     for trial in range(trials):
@@ -226,28 +250,52 @@ for k, out_dim in enumerate(dimensions):
 
         with torch.no_grad():
             print('\nPART 4: In-Progress: Calculating TAC')
-            training_pkg = task_agnostic_correlations(sampler, training_pkg, trial, out_dim)
+            training_pkg = metric_calculator(sampler, training_pkg, trial, out_dim, metric='tac')
             print('PART 4: Completed: Calculating TAC\n')
+
+            print('\nPART 5: In-Progress: Calculating LL')
+            training_pkg = metric_calculator(sampler, training_pkg, trial, out_dim, metric='ll')
+            print('PART 5: Completed: Calculating LL\n')
     
         with open(os.path.join(experiment_name, "output.txt"), "a+") as f:
             print('Completed Out Dim: {}\tTrial: {}'.format(out_dim, trial+1), file=f)
 
-    with open(os.path.join(experiment_name, "output.txt"), "a+") as f:
-        print('\nTAC metrics:\n', file=f)
-    
-    for method in training_methods:
-        training_pkg[method]['tac']['overall'][k] = training_pkg[method]['tac'][
-            '{}'.format(out_dim)].mean() / num_samples
-
-
+    for metric in ['tac', 'll']:
         with open(os.path.join(experiment_name, "output.txt"), "a+") as f:
-            print('Out Dim: {}\tName: {}\tTAC error: {}'.format(
-                out_dim, method, training_pkg[method]['tac']['overall'][k]), file=f)
+            print('\n{} metrics:\n'.format(metric.upper()), file=f)
+        
+        for method in training_methods:
+            training_pkg[method]['{}'.format(metric)]['mean'][k] = training_pkg[
+                method]['{}'.format(metric)]['{}'.format(out_dim)].mean() / num_samples
+
+            avg_across_N = training_pkg[method]['tac']['{}'.format(out_dim)] / num_samples
+            
+            if metric == 'tac':
+                avg_across_N_and_dim = avg_across_N.mean(dim=1)
+                std_for_method_at_dim = avg_across_N_and_dim.std()
+                training_pkg[method]['tac']['std'][k] = std_for_method_at_dim
+
+            else:
+                assert metric == 'll'
+                std_for_method_at_dim = avg_across_N.std()
+                training_pkg[method]['ll']['std'][k] = std_for_method_at_dim
+
+            with open(os.path.join(experiment_name, "output.txt"), "a+") as f:
+                print('Out Dim: {}\tName: {}\t{} Mean: {}\tStd. Dev: {}'.format(
+                    out_dim, method, metric.upper(),
+                    training_pkg[method]['{}'.format(metric)]['mean'][k],
+                    training_pkg[method]['{}'.format(metric)]['std'][k]),
+                    file=f)
         
     with open(os.path.join(experiment_name, "output.txt"), "a+") as f:
             print('\n\n', file=f)
 
     num_samples = num_samples // out_dim
 
-plot_comparison_tac(training_pkg, dimensions, experiment_name)
+    # Save metrics after each epoch
+    torch.save(training_pkg, os.path.join(experiment_name, "training_pkg.pt"))
+
+for metric in ['tac', 'll']:
+    plot_comparison(training_pkg, dimensions, experiment_name, metric=metric)
+
 torch.save(training_pkg, os.path.join(experiment_name, "training_pkg.pt"))

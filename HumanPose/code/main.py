@@ -21,7 +21,8 @@ from models.stacked_hourglass.StackedHourglass import PoseNet as Hourglass
 from utils.pose import fast_argmax, soft_argmax
 from utils.pose import heatmap_loss, count_parameters
 
-from utils.kl_divergence import get_positive_definite_matrix, calculate_tac, get_tic_covariance
+from utils.tic import get_positive_definite_matrix, get_tic_covariance
+from utils.tic import calculate_tac, calculate_ll
 
 from loss import mse_gradient, nll_gradient, diagonal_gradient
 from loss import beta_nll_gradient, faithful_gradient
@@ -232,11 +233,11 @@ class Train(object):
         return aux_out
 
 
-class Task_Agnostic_Correlations(object):
+class Evaluate(object):
     def __init__(self, sampler: HumanPoseDataLoader, conf: ParseConfig,
                  training_pkg: dict, trial: int) -> None:
         """
-        Compare the TAC error for various covariance methods.
+        Compare the TAC error or likelihood for various covariance methods.
         :param sampler: Instance of HumanPoseDataLoader, samples from MPII + LSP
         :param conf: Stores the configuration for the experiment
         :param training_pkg: Dictionary which will hold models, optimizers, schedulers etc.
@@ -256,11 +257,11 @@ class Task_Agnostic_Correlations(object):
             self.sampler, batch_size=self.batch_size, shuffle=False, num_workers=1, drop_last=True)
 
 
-    def calculate(self) -> None:
+    def calculate_metric(self, metric: str) -> None:
         """
-        Calculate and store TAC for all methods
+        Calculate and store TAC or LL for all methods
         """
-        print("Covariance Estimation: Evaluation")
+        print("Covariance Estimation: {} Evaluation".format(metric.upper()))
 
         self.sampler.set_augmentation(augment=False)
 
@@ -277,25 +278,44 @@ class Task_Agnostic_Correlations(object):
                     outputs, pose_features = net(images)
 
                     # At 64 x 64 level
-                    pred_uv = soft_argmax(outputs[:, -1]).view(outputs.shape[0], self.num_hm * 2)
-                    gt_uv = fast_argmax(heatmaps.to(pred_uv.device)).view(outputs.shape[0], self.num_hm * 2)
+                    pred_uv = soft_argmax(outputs[:, -1]).view(
+                        outputs.shape[0], self.num_hm * 2)
+                    gt_uv = fast_argmax(heatmaps.to(pred_uv.device)).view(
+                        outputs.shape[0], self.num_hm * 2)
 
                     matrix = self._aux_net_inference(pose_features, aux_net)
                     covariance = self._get_covariance(method, matrix, net, pose_features)
+                    precision = torch.linalg.inv(covariance)
 
-                    loss_placeholder = torch.zeros((pred_uv.shape[0], self.num_hm), device=pred_uv.device)
-                    self.training_pkg[method]['tac'][self.trial] += calculate_tac(
-                        pred_uv, covariance, gt_uv, loss_placeholder).sum(dim=0)
+                    if metric == 'tac':
+                        loss_placeholder = torch.zeros((pred_uv.shape[0], self.num_hm),
+                                                       device=pred_uv.device)
+                        self.training_pkg[method]['tac'][self.trial] += calculate_tac(
+                            pred_uv, covariance, gt_uv, loss_placeholder).sum(dim=0)
+
+                    else:
+                        assert metric == 'll'
+                        loss_placeholder = torch.zeros(pred_uv.shape[0],
+                                                       device=pred_uv.device)
+                        self.training_pkg[method]['ll'][self.trial] += calculate_ll(
+                            pred_uv, precision, gt_uv, loss_placeholder).sum()
 
             # Save TAC
-            with open(os.path.join(self.conf.save_path, "output_{}.txt".format(self.trial)), "a+") as f:    
+            with open(os.path.join(self.conf.save_path, "output_{}.txt".format(self.trial)), "a+") as f:
                 for method in training_methods:
-                    print('Method: {}\tTAC (Mean): '.format(method),
-                          self.training_pkg[method]['tac'][self.trial].mean().cpu().numpy() / len(self.sampler),
-                          file=f, end='\t\t')
-                    print('TAC (joint): ',
-                          self.training_pkg[method]['tac'][self.trial].cpu().numpy() / len(self.sampler), file=f)
-                    
+                    cumulative_error = self.training_pkg[method]['{}'.format(metric)][
+                        self.trial].mean().cpu().numpy()
+                    print('Method: {}\t{} (Mean): '.format(method, metric.upper()),
+                          cumulative_error / len(self.sampler), file=f)
+
+                    print('\n', file=f)
+
+                print('\n\n', file=f)
+                if metric == 'tac':
+                    for method in training_methods:
+                        print('Method: {}\tTAC (joint): '.format(method), self.training_pkg[method]['tac'][
+                            self.trial].cpu().numpy() / len(self.sampler), file=f)
+                    print('\n\n', file=f)    
 
             torch.save(self.training_pkg,
                 os.path.join(self.conf.save_path, "training_pkg_{}.pt".format(self.trial)))
@@ -382,6 +402,7 @@ def main() -> None:
     for method in training_methods:
         training_pkg[method] = dict()
         training_pkg[method]['tac'] = torch.zeros((trials, num_hm), dtype=torch.float32, device='cuda')
+        training_pkg[method]['ll'] = torch.zeros(trials, dtype=torch.float32, device='cuda')
         training_pkg[method]['loss'] = torch.zeros((trials, epochs), device='cuda')
     training_pkg['training_methods'] = training_methods 
 
@@ -413,10 +434,11 @@ def main() -> None:
 
 
         with torch.no_grad():
-            tac = Task_Agnostic_Correlations(
+            eval_obj = Evaluate(
                 sampler=dataset, conf=conf, training_pkg=training_pkg, trial=trial)
             
-            tac.calculate()
+            eval_obj.calculate_metric(metric='tac')
+            eval_obj.calculate_metric(metric='ll')
 
 
 main()

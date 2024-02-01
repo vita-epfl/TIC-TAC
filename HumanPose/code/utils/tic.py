@@ -1,4 +1,5 @@
 import os
+from math import log, pi
 from typing import Callable
 
 import torch
@@ -89,6 +90,23 @@ def calculate_tac_per_sample(y_pred: torch.Tensor, covariance_hat: torch.Tensor,
     return loss_placeholder
 
 
+def calculate_ll_per_sample(y_pred: torch.Tensor, precision_hat: torch.Tensor,
+                            y_gt: torch.Tensor, loss_placeholder: torch.Tensor) -> torch.Tensor:
+    """
+    Compute LL for each sample
+    """
+
+    out_dim = y_gt.shape[-1]
+
+    ll = -0.5 * (
+            (out_dim * log(2 * pi))
+          - (torch.logdet(precision_hat))
+          + (torch.matmul(torch.matmul((y_gt - y_pred).unsqueeze(0), precision_hat),
+                          (y_gt - y_pred).unsqueeze(1)).squeeze()))
+    
+    return ll
+
+
 def _predictions(hg_level_6: Hourglass, hg_feat: Hourglass,
                  hg_out: Hourglass) -> Callable[[torch.Tensor], torch.Tensor]:
     """
@@ -170,4 +188,5 @@ def get_tic_covariance(pose_net: Hourglass, pose_encodings: dict, matrix: torch.
 
 # Batched functions
 calculate_tac = vmap(calculate_tac_per_sample, in_dims=(0, 0, 0, 0))
+calculate_ll = vmap(calculate_ll_per_sample, in_dims=(0, 0, 0, 0))
 batched_hessian_var = vmap(pairwise_matmul_with_trace)
