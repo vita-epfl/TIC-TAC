@@ -1,6 +1,6 @@
-# TIC-TAC: A Framework To Learn And Evaluate Your Covariance
+# TIC-TAC: A Framework For Improved Covariance Estimation In Deep Heteroscedastic Regression
 
-Code repository for "TIC-TAC: A Framework To Learn And Evaluate Your Covariance". We derive a new expression, the _Taylor Induced Covariance (TIC)_, and a new metric, the _Task Agnostic Correlations (TAC)_, for covariance estimation. TIC expresses the covariance through the estimator's gradient and curvature, resulting in better covariance predictions. TAC leverages the conditioning property of the normal distribution to evaluate the covariance quantitatively.
+Code repository for "TIC-TAC: A Framework For Improved Covariance Estimation In Deep Heteroscedastic Regression". We derive a new expression, the _Taylor Induced Covariance (TIC)_, and a new metric, the _Task Agnostic Correlations (TAC)_, for covariance estimation in deep heteroscedastic regression. TIC expresses the covariance through the estimator's gradient and curvature, resulting in better covariance predictions. TAC leverages the conditioning property of the normal distribution to evaluate the covariance quantitatively.
 
 
 ## Table of contents
@@ -41,7 +41,7 @@ The repository contains four main folders corresponding to the four experiments:
 │   │   │       ├── layers.py
 │   │   │       └── StackedHourglass.py
 │   │   └── utils
-│   │       ├── kl_divergence.py
+│   │       ├── tic.py
 │   │       └── pose.py
 │   ├── data
 │   │   ├── lsp
