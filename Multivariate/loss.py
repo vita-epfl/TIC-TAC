@@ -4,13 +4,13 @@ from regressor import Regressor
 from utils import get_positive_definite_matrix, get_tic_covariance
 
 
-def mse_gradient(model: Regressor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+def mse_loss(model: Regressor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     y_hat, _ = model(x)
     loss = (y - y_hat) ** 2
     return loss.sum()
 
 
-def nll_gradient(model: Regressor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+def nll_loss(model: Regressor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     out_dim = y.shape[1]
 
     y_hat, precision_hat = model(x)
@@ -22,7 +22,7 @@ def nll_gradient(model: Regressor, x: torch.Tensor, y: torch.Tensor) -> torch.Te
     return loss.sum()
 
 
-def diagonal_gradient(model: Regressor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+def diagonal_loss(model: Regressor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     out_dim = y.shape[1]
     
     y_hat, var_hat = model(x)
@@ -33,7 +33,7 @@ def diagonal_gradient(model: Regressor, x: torch.Tensor, y: torch.Tensor) -> tor
     return loss.sum()
 
 
-def beta_nll_gradient(model: Regressor, x: torch.Tensor, y: torch.Tensor, beta_nll: float) -> torch.Tensor:
+def beta_nll_loss(model: Regressor, x: torch.Tensor, y: torch.Tensor, beta_nll: float) -> torch.Tensor:
     out_dim = y.shape[1]
 
     y_hat, var_hat = model(x)
@@ -47,7 +47,7 @@ def beta_nll_gradient(model: Regressor, x: torch.Tensor, y: torch.Tensor, beta_n
     return loss.sum()
 
 
-def faithful_gradient(model: Regressor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+def faithful_loss(model: Regressor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     out_dim = y.shape[1]
 
     y_hat, precision_hat = model(x)
@@ -66,7 +66,7 @@ def faithful_gradient(model: Regressor, x: torch.Tensor, y: torch.Tensor) -> tor
     return loss.sum()
 
 
-def tic_gradient(model: Regressor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+def tic_loss(model: Regressor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     out_dim = y.shape[1]
 
     y_hat, cov_hat = model(x)

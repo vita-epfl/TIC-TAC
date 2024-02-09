@@ -3,11 +3,12 @@ experiment_name: "TIC-TAC"
 trials: 1
 use_hessian: False
 
-save_path: "/absolute/path/to/directory/"
+save_path: "None"
 
 dataset: {
   mpii_params: {precached: False}
-  # precached: True implies this exists, False does the post-process and also saves a copy
+  # precached: True implies preprocessed version of MPII exists
+  # Should be False the first time this code is run, and true subsequently
 }
 
 experiment_settings: {

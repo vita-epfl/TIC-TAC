@@ -14,7 +14,6 @@ from matplotlib import pyplot as plt
 from regressor import Regressor
 
 
-
 def gradient_norm(model: Regressor) -> torch.Tensor:
     """
     Computes the L-2 norm of the model's gradients
@@ -87,16 +86,18 @@ def plot_sine(ax: mpl.axes._axes, x: np.array, sine: np.array, y_hat: np.array,
     """
     Plots the ground truth and predictions with standard deviation
     """
-    ax[i % 6].plot(x, sine, color='darkgrey')
+    ax[i % 7].plot(x, sine, color='darkgrey')
 
-    ax[i % 6].plot(x, y_hat, c=color, label=label, linewidth=2)
-    ax[i % 6].fill_between(x, y_hat + std_dev, y_hat - std_dev, alpha=0.25, color=color)
+    ax[i % 7].plot(x, y_hat, c=color, label=label, linewidth=3)
+    ax[i % 7].fill_between(x, y_hat + std_dev, y_hat - std_dev, alpha=0.25, color=color)
 
-    ax[i % 6].set_ylim(-1.2 * max(sine), 1.2 * max(sine))
-    ax[i % 6].legend(loc='upper right', fontsize=32)
+    ax[i % 7].set_ylim(-1.2 * max(sine), 1.2 * max(sine))
+    ax[i % 7].legend(loc='upper right', fontsize=32)
 
-    ax[i % 6].tick_params(axis='both', which='major', labelsize=6)
-    ax[i % 6].tick_params(axis='both', which='minor', labelsize=5)
-    ax[i % 6].locator_params(tight=True, nbins=8)
+    ax[i % 7].tick_params(axis='both', which='major', labelsize=24)
+    ax[i % 7].tick_params(axis='both', which='minor', labelsize=20)
+    ax[i % 7].locator_params(tight=True, nbins=8)
+
+    ax[0].set_ylabel('f(x)', fontsize=32)
 
     return ax
