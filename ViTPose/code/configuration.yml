@@ -20,6 +20,7 @@ experiment_settings: {
   batch_size: 32,    # Default: 32
 }
 
+# ViTPose configuration is in models/vit_pose/vitpose_config.py
 architecture: {
   hourglass: {nstack: 2, channels: 64},
   aux_net: {fc: [64, 64, 64]}
