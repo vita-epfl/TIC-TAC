@@ -6,7 +6,7 @@
 <a href="https://arxiv.org/abs/2310.18953"><img alt="arXiv" src="https://img.shields.io/badge/arXiv-2310.18953-%23B31B1B?logo=arxiv&logoColor=white"></a>
 <a href="https://www.epfl.ch/labs/vita/heteroscedastic-regression/"><img alt="Project" src="https://img.shields.io/badge/-Project%20Page-lightgrey?logo=Google%20Chrome&color=informational&logoColor=white"></a>
 <a href="https://openreview.net/forum?id=zdNTiTs5gU"><img alt="OpenReview" src="https://img.shields.io/badge/ICML%202024-OpenReview-%236DA252"></a>
-
+<a href="https://hub.docker.com/repository/docker/meghshukla/tictac/"><img alt="Docker" src="https://img.shields.io/badge/Image-tictac-%232496ED?logo=docker&logoColor=white"></a>
 <br>
 
 Code repository for "TIC-TAC: A Framework For Improved Covariance Estimation In Deep Heteroscedastic Regression". We address the problem of sub-optimal covariance estimation in deep heteroscedastic regression by proposing a new parameterisation (TIC) and metric (TAC). We derive a new expression, the _Taylor Induced Covariance (TIC)_, which expresses the randomness of the prediction through its gradient and curvature. The _Task Agnostic Correlations (TAC)_ metric leverages the conditioning property of the normal distribution to evaluate the covariance quantitatively.
@@ -22,7 +22,7 @@ Code repository for "TIC-TAC: A Framework For Improved Covariance Estimation In 
 
 ## Installation: Docker (recommended) or PIP <a name="installation"></a>
 
-**Docker <a href="https://hub.docker.com/repository/docker/meghshukla/tictac/"><img alt="Docker" src="https://img.shields.io/badge/Image-tictac-%232496ED?logo=docker&logoColor=white"></a>**: We provide a Docker image which is pre-installed with all required packages. We recommend using this image to ensure reproducibility of our results. Using this image requires setting up Docker on Ubuntu: [Docker](https://docs.docker.com/engine/install/ubuntu/#installation-methods). Once installed, we can use the provided `docker-compose.yaml` file to start our environment with the following command:  `docker-compose run --rm tictac` <br>
+**Docker**: We provide a Docker image which is pre-installed with all required packages. We recommend using this image to ensure reproducibility of our results. Using this image requires setting up Docker on Ubuntu: [Docker](https://docs.docker.com/engine/install/ubuntu/#installation-methods). Once installed, we can use the provided `docker-compose.yaml` file to start our environment with the following command:  `docker-compose run --rm tictac` <br>
 
 **PIP**: In case using Docker is not possible, we provide a `requirements.txt` file containing a list of all the packages which can be installed with `pip`.  We recommend setting up a new virtual environment ([link](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/)) and install the packages using:  `pip install -r requirements.txt`
 
@@ -55,7 +55,7 @@ If you find this work useful, please consider starring this repository and citin
 @InProceedings{shukla2024tictac,
   title = {TIC-TAC: A Framework for Improved Covariance Estimation in Deep Heteroscedastic Regression},
   author = {Shukla, Megh and Salzmann, Mathieu and Alahi, Alexandre},
-  booktitle = {Proceedings of the 41th International Conference on Machine Learning},
+  booktitle = {Proceedings of the 41th International Conference on Machine Learning (ICML)},
   year = {2024},
   series = {Proceedings of Machine Learning Research},
   month = {21--27 Jul},
