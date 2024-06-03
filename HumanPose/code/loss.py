@@ -1,7 +1,6 @@
 import torch
 from typing import Union
 
-
 from utils.tic import get_positive_definite_matrix, get_tic_covariance
 from models.vit_pose.ViTPose import ViTPose
 from models.stacked_hourglass.StackedHourglass import PoseNet as Hourglass

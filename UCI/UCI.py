@@ -30,7 +30,7 @@ plt.rcParams['figure.dpi'] = 300
 
 # Configuration
 trials = 10
-dataset_uci = 'concrete'
+dataset_uci = 'naval'
 # Possible options: red_wine, white_wine, energy, concrete, power, air, naval, electrical
 # abalone, gas_turbine, appliances, parkinson
 

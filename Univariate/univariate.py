@@ -36,12 +36,12 @@ plt.rcParams["figure.figsize"] = (55,6)
 
 ###### Configuration ######
 # Sinusoidal Configuration
-varying_amplitude = False
-invert_varying = None
+varying_amplitude = True
+invert_varying = False
 frequency = 2 * np.pi * 1
 
 # Create experiment folder
-experiment_name = 'Results/VaryingAmplitude_{}_and_InvertVarying_{}'.format(
+experiment_name = 'ICML_Results/VaryingAmplitude_{}_and_InvertVarying_{}'.format(
     varying_amplitude, invert_varying)
 
 

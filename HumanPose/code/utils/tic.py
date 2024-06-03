@@ -110,6 +110,7 @@ def calculate_ll_per_sample(y_pred: torch.Tensor, precision_hat: torch.Tensor,
 
 def _predictions_hg(hg_level_6: Hourglass, hg_feat: Hourglass,
                     hg_out: Hourglass) -> Callable[[torch.Tensor], torch.Tensor]:
+  
     """
     Obtains the model's target predictions for an input.
     This function is used in conjunction with vmap.
@@ -134,7 +135,7 @@ def _predictions_hg(hg_level_6: Hourglass, hg_feat: Hourglass,
         return soft_argmax(x).view(x.shape[0], -1)
     return pred
 
-
+  
 def _predictions_vitpose(x: torch.Tensor, imgs: torch.Tensor, vitpose: ViTPose) -> torch.Tensor:
     """
     Obtains the model's target predictions for an input.
