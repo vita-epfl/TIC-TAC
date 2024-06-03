@@ -23,6 +23,7 @@ class ParseConfig(object):
 
         # 2. Initializing ParseConfig object --------------------------------------------------------------------------
         self.trials = conf_yml['trials']
+        self.model_name = conf_yml['model']
         self.dataset = conf_yml['dataset']
         self.experiment_settings = conf_yml['experiment_settings']
         self.architecture = conf_yml['architecture']

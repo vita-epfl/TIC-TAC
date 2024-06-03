@@ -1,15 +1,18 @@
 import torch
+from typing import Union
+
 
 from utils.tic import get_positive_definite_matrix, get_tic_covariance
+from models.vit_pose.ViTPose import ViTPose
 from models.stacked_hourglass.StackedHourglass import PoseNet as Hourglass
 
 
-def mse_gradient(means: torch.Tensor) -> torch.Tensor:
+def mse_loss(means: torch.Tensor) -> torch.Tensor:
     loss = (means ** 2).sum(dim=1)
     return loss.mean()
 
 
-def nll_gradient(means: torch.Tensor, matrix: torch.Tensor, dim: int) -> torch.Tensor:
+def nll_loss(means: torch.Tensor, matrix: torch.Tensor, dim: int) -> torch.Tensor:
     precision_hat = get_positive_definite_matrix(matrix, dim)
 
     loss = -torch.logdet(precision_hat) + torch.matmul(
@@ -19,13 +22,13 @@ def nll_gradient(means: torch.Tensor, matrix: torch.Tensor, dim: int) -> torch.T
     return loss.mean()
 
 
-def diagonal_gradient(means: torch.Tensor, matrix: torch.Tensor, dim: int) -> torch.Tensor:
+def diagonal_loss(means: torch.Tensor, matrix: torch.Tensor, dim: int) -> torch.Tensor:
     var_hat = matrix[:, :dim] ** 2
     loss = torch.log(var_hat) + ((means ** 2) / var_hat)
     return loss.mean()
 
 
-def beta_nll_gradient(means: torch.Tensor, matrix: torch.Tensor, dim: int) -> torch.Tensor:
+def beta_nll_loss(means: torch.Tensor, matrix: torch.Tensor, dim: int) -> torch.Tensor:
     var_hat = matrix[:, :dim] ** 2
     loss = torch.log(var_hat) + ((means ** 2) / var_hat)
     scaling = torch.clone(var_hat).detach() ** 0.5
@@ -34,7 +37,7 @@ def beta_nll_gradient(means: torch.Tensor, matrix: torch.Tensor, dim: int) -> to
     return loss.mean()
 
 
-def faithful_gradient(means: torch.Tensor, matrix: torch.Tensor, dim: int) -> torch.Tensor:
+def faithful_loss(means: torch.Tensor, matrix: torch.Tensor, dim: int) -> torch.Tensor:
     precision_hat = get_positive_definite_matrix(matrix, dim)
 
     # This trains the mean square error module independent of NLL
@@ -51,12 +54,12 @@ def faithful_gradient(means: torch.Tensor, matrix: torch.Tensor, dim: int) -> to
     return loss.mean()
 
 
-def tic_gradient(means: torch.Tensor, matrix: torch.Tensor, dim: int,
-                 pose_net: Hourglass, pose_encodings: dict, use_hessian: bool) -> torch.Tensor:
+def tic_loss(means: torch.Tensor, matrix: torch.Tensor, dim: int, pose_net: Union[ViTPose, Hourglass],
+             pose_encodings: dict, use_hessian: bool, model_name: str, imgs: torch.Tensor) -> torch.Tensor:
     
     psd_matrix = get_positive_definite_matrix(matrix, dim)
     covariance_hat = get_tic_covariance(
-        pose_net, pose_encodings, matrix, psd_matrix, use_hessian)
+        pose_net, pose_encodings, matrix, psd_matrix, use_hessian, model_name, imgs)
     
     precision_hat = torch.linalg.inv(covariance_hat)
             

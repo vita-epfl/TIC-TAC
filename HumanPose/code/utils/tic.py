@@ -1,6 +1,6 @@
 import os
 from math import log, pi
-from typing import Callable
+from typing import Callable, Union
 
 import torch
 from matplotlib import pyplot as plt
@@ -9,6 +9,7 @@ if int(torch.__version__.split('.')[0]) >= 2: from torch.func import vmap, hessi
 else: from functorch import vmap, hessian, jacrev
 
 from utils.pose import soft_argmax
+from models.vit_pose.ViTPose import ViTPose
 from models.stacked_hourglass.StackedHourglass import PoseNet as Hourglass
 
 
@@ -107,8 +108,8 @@ def calculate_ll_per_sample(y_pred: torch.Tensor, precision_hat: torch.Tensor,
     return ll
 
 
-def _predictions(hg_level_6: Hourglass, hg_feat: Hourglass,
-                 hg_out: Hourglass) -> Callable[[torch.Tensor], torch.Tensor]:
+def _predictions_hg(hg_level_6: Hourglass, hg_feat: Hourglass,
+                    hg_out: Hourglass) -> Callable[[torch.Tensor], torch.Tensor]:
     """
     Obtains the model's target predictions for an input.
     This function is used in conjunction with vmap.
@@ -119,7 +120,7 @@ def _predictions(hg_level_6: Hourglass, hg_feat: Hourglass,
     hg_level_2 = hg_level_3.low2
     hg_level_1 = hg_level_2.low2 
     
-    def pred(x):    
+    def pred(x: torch.Tensor) -> torch.Tensor:    
         x = x.unsqueeze(-1).unsqueeze(-1)
         x = hg_level_1.up2(x)
         x = hg_level_2.up2(hg_level_2.low3(x))
@@ -134,8 +135,19 @@ def _predictions(hg_level_6: Hourglass, hg_feat: Hourglass,
     return pred
 
 
-def _get_derivatives(inputs: torch.Tensor, pose_net: Hourglass,
-                     use_hessian: bool) -> (torch.Tensor, torch.Tensor):
+def _predictions_vitpose(x: torch.Tensor, imgs: torch.Tensor, vitpose: ViTPose) -> torch.Tensor:
+    """
+    Obtains the model's target predictions for an input.
+    This function is used in conjunction with vmap.
+    """
+    x = vitpose.upscale(x) + vitpose.forward_features(imgs)
+    x = vitpose.keypoint_head(x)
+    
+    return soft_argmax(x).view(x.shape[0], -1)
+
+
+def _get_derivatives_hg(inputs: torch.Tensor, pose_net: Hourglass,
+                        use_hessian: bool) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Compute the gradient and hessian wrt the input x for a model
     """
@@ -145,7 +157,7 @@ def _get_derivatives(inputs: torch.Tensor, pose_net: Hourglass,
     grads = None
     hessians = None
 
-    _pred_fn = _predictions(pose_net.hgs[-1][0], pose_net.features[-1], pose_net.outs[-1])
+    _pred_fn = _predictions_hg(pose_net.hgs[-1][0], pose_net.features[-1], pose_net.outs[-1])
 
     grads = vmap(jacrev(_pred_fn))(inputs.unsqueeze(1)).squeeze()
     grads = grads @ grads.mT
@@ -164,15 +176,51 @@ def _get_derivatives(inputs: torch.Tensor, pose_net: Hourglass,
         return grads.detach(), hessians.detach()
     else:
         return grads.detach(), None
+    
+
+def _get_derivatives_vitpose(inputs: torch.Tensor, pose_net: ViTPose,
+                             use_hessian: bool, imgs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Compute the gradient and hessian wrt the input x for a model
+    """
+    model_is_train = pose_net.training
+    pose_net.train(False)
+
+    grads = None
+    hessians = None
+    
+    grads = vmap(jacrev(_predictions_vitpose, argnums=0), in_dims=(0, 0, None))(
+        inputs.unsqueeze(1), imgs.unsqueeze(1), pose_net).squeeze()
+    
+    grads = grads @ grads.mT
+
+    if use_hessian:
+        hessians = vmap(hessian(_predictions_vitpose, argnums=0), in_dims=(0, 0, None), chunk_size=4)(
+            inputs.unsqueeze(1), imgs.unsqueeze(1), pose_net).squeeze()
+
+        hessians = batched_hessian_var(hessians)
+
+    pose_net.train(model_is_train)
+    pose_net.zero_grad()    # As a precaution
+    
+    if use_hessian:
+        return grads.detach(), hessians.detach()
+    else:
+        return grads.detach(), None
 
 
-def get_tic_covariance(pose_net: Hourglass, pose_encodings: dict, matrix: torch.Tensor,
-                                 psd_matrix: torch.Tensor, use_hessian: bool) -> torch.Tensor:
+def get_tic_covariance(pose_net: Union[ViTPose, Hourglass], pose_encodings: dict, matrix: torch.Tensor,
+                       psd_matrix: torch.Tensor, use_hessian: bool, model_name: str,
+                       imgs: torch.Tensor) -> torch.Tensor:
     """
     Compute the Taylor Induced Covariance
     """
     with torch.no_grad():
-        grads, hessians = _get_derivatives(pose_encodings['vector'], pose_net, use_hessian)
+        if model_name == 'Hourglass':
+            grads, hessians = _get_derivatives_hg(pose_encodings['vector'], pose_net, use_hessian)
+        else:
+            assert model_name == 'ViTPose', "Model name: {} not recognized.".format(model_name)
+            grads, hessians = _get_derivatives_vitpose(pose_encodings, pose_net, use_hessian, imgs)
 
     epsilon = matrix[:, -2:] ** 2
 
