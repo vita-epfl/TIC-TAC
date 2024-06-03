@@ -1,7 +1,7 @@
 version: "3"
 
 services:
-  covariance:
+  tictac:
     image: meghshukla/tictac
     ipc: host
     stdin_open: true

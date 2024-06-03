@@ -16,7 +16,7 @@ def heatmap_loss(combined_hm_preds: torch.Tensor, heatmaps: torch.Tensor) -> tor
     nstack = combined_hm_preds.shape[1]
 
     for i in range(nstack):
-        combined_loss.append(calc_loss(combined_hm_preds[:, i], heatmaps.to(combined_hm_preds[:, i].device)))
+        combined_loss.append(calc_loss(combined_hm_preds[:, i], heatmaps.to(combined_hm_preds.device)))
 
     if nstack == 1:
         combined_loss = combined_loss[0].unsqueeze(1)
@@ -25,12 +25,12 @@ def heatmap_loss(combined_hm_preds: torch.Tensor, heatmaps: torch.Tensor) -> tor
     return combined_loss
 
 
-def heatmap_generator(joints: float, occlusion: bool, hm_shape: tuple, img_shape: tuple) -> (float, int):
+def heatmap_generator(joints: float, occlusion: bool, hm_shape: tuple, img_shape: tuple) -> tuple:
     """
     Create heatmap: BS x #jnts x 64 x 64
     """
 
-    def draw_heatmap(pt_uv, use_occlusion, hm_shape, sigma=1.75) -> (float, int):
+    def draw_heatmap(pt_uv, use_occlusion, hm_shape, sigma=1.75) -> tuple:
         '''
         2D gaussian (exponential term only) centred at given point.
         No constraints on point to be integer only.

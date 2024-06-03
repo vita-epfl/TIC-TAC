@@ -3,6 +3,7 @@ import os
 import copy
 import logging
 from tqdm import tqdm
+from typing import Union
 
 
 # Science-y imports
@@ -15,8 +16,10 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from config import ParseConfig
 from dataloader import load_hp_dataset, HumanPoseDataLoader
 
-from models.auxiliary.AuxiliaryNet import AuxNet
+from models.auxiliary.AuxiliaryNet import AuxNet_HG, AuxNet_ViTPose
 from models.stacked_hourglass.StackedHourglass import PoseNet as Hourglass
+from models.vit_pose import vitpose_config
+from models.vit_pose.ViTPose import ViTPose
 
 from utils.pose import fast_argmax, soft_argmax
 from utils.pose import heatmap_loss, count_parameters
@@ -24,9 +27,9 @@ from utils.pose import heatmap_loss, count_parameters
 from utils.tic import get_positive_definite_matrix, get_tic_covariance
 from utils.tic import calculate_tac, calculate_ll
 
-from loss import mse_gradient, nll_gradient, diagonal_gradient
-from loss import beta_nll_gradient, faithful_gradient
-from loss import tic_gradient
+from loss import mse_loss, nll_loss, diagonal_loss
+from loss import beta_nll_loss, faithful_loss
+from loss import tic_loss
 
 # Global declarations
 logging.getLogger().setLevel(logging.INFO)
@@ -42,7 +45,7 @@ class Train(object):
         """
         Train and compare various covariance methods.
         :param sampler: Instance of HumanPoseDataLoader, samples from MPII + LSP
-        :param models: Contains (Hourglass, AuxNet) models
+        :param models: Contains (Hourglass or ViTPose, AuxNet) models
         :param conf: Stores the configuration for the experiment
         :param training_pkg: Dictionary which will hold models, optimizers, schedulers etc.
         :param trial: Which trial is ongoing
@@ -115,7 +118,7 @@ class Train(object):
 
                     loss_covariance = self.covariance_estimation(
                         aux_net=aux_net, pose_net=net, pose_encodings=pose_features,
-                        pred=pred_uv, gt=gt_uv, name=method)
+                        pred=pred_uv, gt=gt_uv, name=method, imgs=images)
                     
                     # Weight update
                     (loss_covariance + torch.mean(hm_loss)).backward()
@@ -170,9 +173,10 @@ class Train(object):
                 self.training_pkg[method]['scheduler'].step(
                     self.training_pkg[method]['loss'][self.trial][e])
 
-
-    def covariance_estimation(self, aux_net: AuxNet, pose_net: Hourglass, pose_encodings: dict, 
-                              pred: torch.Tensor, gt: torch.Tensor, name: str) -> torch.Tensor:
+    
+    def covariance_estimation(self, aux_net: Union[AuxNet_HG, AuxNet_ViTPose],
+                              pose_net: Union[Hourglass, ViTPose], pose_encodings: dict, 
+                              pred: torch.Tensor, gt: torch.Tensor, name: str, imgs: torch.Tensor) -> torch.Tensor:
         """
         Computing the full covariance matrix
 
@@ -194,22 +198,23 @@ class Train(object):
 
         # Various covariance implentations ------------------------------------------------------------
         if name == 'MSE':
-            loss = mse_gradient(means)
+            loss = mse_loss(means)
 
         elif name == 'NLL':
-            loss = nll_gradient(means, matrix, out_dim)
+            loss = nll_loss(means, matrix, out_dim)
         
         elif name == 'Diagonal':
-            loss = diagonal_gradient(means, matrix, out_dim)
+            loss = diagonal_loss(means, matrix, out_dim)
 
         elif name == 'Beta-NLL':
-            loss = beta_nll_gradient(means, matrix, out_dim)
+            loss = beta_nll_loss(means, matrix, out_dim)
 
         elif name == 'Faithful':
-            loss = faithful_gradient(means, matrix, out_dim)
+            loss = faithful_loss(means, matrix, out_dim)
 
         elif name == 'TIC':
-            loss = tic_gradient(means, matrix, out_dim, pose_net, pose_encodings, self.conf.use_hessian)
+            loss = tic_loss(means, matrix, out_dim, pose_net, pose_encodings,
+                            self.conf.use_hessian, self.conf.model_name, imgs)
             
         else:
             raise NotImplementedError
@@ -217,17 +222,20 @@ class Train(object):
         return loss
 
 
-    def _aux_net_inference(self, pose_features: dict, aux_net: AuxNet) -> torch.Tensor:
+    def _aux_net_inference(self, pose_features: dict, aux_net: Union[AuxNet_HG, AuxNet_ViTPose]) -> torch.Tensor:
         """
         Obtaining the flattened matrix from the aux net inference module
         """
-        with torch.no_grad():
-            depth = len(self.conf.architecture['aux_net']['spatial_dim'])
-            encodings = torch.cat(
-                [pose_features['feature_{}'.format(i)].reshape(
-                    self.batch_size, pose_features['feature_{}'.format(i)].shape[1], -1) \
-                    for i in range(depth, 0, -1)],
-                dim=2)
+        if self.conf.model_name == 'Hourglass':
+            with torch.no_grad():
+                depth = len(self.conf.architecture['aux_net']['spatial_dim'])
+                encodings = torch.cat(
+                    [pose_features['feature_{}'.format(i)].reshape(
+                        self.batch_size, pose_features['feature_{}'.format(i)].shape[1], -1) \
+                        for i in range(depth, 0, -1)],
+                    dim=2)
+        else:
+            encodings = pose_features
 
         aux_out = aux_net(encodings)
         return aux_out
@@ -284,7 +292,7 @@ class Evaluate(object):
                         outputs.shape[0], self.num_hm * 2)
 
                     matrix = self._aux_net_inference(pose_features, aux_net)
-                    covariance = self._get_covariance(method, matrix, net, pose_features)
+                    covariance = self._get_covariance(method, matrix, net, pose_features, images)
                     precision = torch.linalg.inv(covariance)
 
                     if metric == 'tac':
@@ -321,8 +329,8 @@ class Evaluate(object):
                 os.path.join(self.conf.save_path, "training_pkg_{}.pt".format(self.trial)))
 
 
-    def _get_covariance(self, name: str, matrix: torch.Tensor,
-                        pose_net: Hourglass, pose_encodings: dict) -> torch.Tensor:
+    def _get_covariance(self, name: str, matrix: torch.Tensor, pose_net: Union[Hourglass, ViTPose],
+                        pose_encodings: dict, imgs: torch.Tensor) -> torch.Tensor:
         
         out_dim = 2 * self.num_hm
 
@@ -341,44 +349,55 @@ class Evaluate(object):
         elif name in ['TIC']:
             psd_matrix = get_positive_definite_matrix(matrix, out_dim)
             covariance_hat = get_tic_covariance(
-                pose_net, pose_encodings, matrix, psd_matrix, self.conf.use_hessian)
+                pose_net, pose_encodings, matrix, psd_matrix, self.conf.use_hessian, self.conf.model_name, imgs)
+            
             return covariance_hat
 
         else:
             raise NotImplementedError
 
 
-    def _aux_net_inference(self, pose_features: dict, aux_net: AuxNet) -> torch.Tensor:
+    def _aux_net_inference(self, pose_features: dict,
+                           aux_net: Union[AuxNet_HG, AuxNet_ViTPose]) -> torch.Tensor:
         """
         Obtaining the flattened matrix from the aux net inference module
         """
-        with torch.no_grad():
-            depth = len(self.conf.architecture['aux_net']['spatial_dim'])
-            encodings = torch.cat([
-                pose_features['feature_{}'.format(i)].reshape(
-                    self.batch_size, pose_features['feature_{}'.format(i)].shape[1], -1) 
-                    for i in range(depth, 0, -1)
-                ], dim=2)
+        if self.conf.model_name == 'Hourglass':
+            with torch.no_grad():
+                depth = len(self.conf.architecture['aux_net']['spatial_dim'])
+                encodings = torch.cat(
+                    [pose_features['feature_{}'.format(i)].reshape(
+                        self.batch_size, pose_features['feature_{}'.format(i)].shape[1], -1) \
+                        for i in range(depth, 0, -1)],
+                    dim=2)
+        else:
+            encodings = pose_features
 
         aux_out = aux_net(encodings)
         return aux_out
 
 
-def init_models(conf: ParseConfig) -> (Hourglass, AuxNet):
+def init_models(conf: ParseConfig) -> tuple:
     """
     Initializes and returns Hourglass and AuxNet models
     """
 
     logging.info('Initializing Auxiliary Network')
-    aux_net = AuxNet(arch=conf.architecture['aux_net'])
     
-    logging.info('Initializing Hourglass Network')
-    pose_net = Hourglass(arch=conf.architecture['hourglass'])
-    print('Number of parameters (Hourglass): {}\n'.format(count_parameters(pose_net)))
 
-    # CUDA support: Single/Multi-GPU
-    # Hourglass net has CUDA definitions inside __init__(), specify only for aux_net
-    aux_net.cuda(torch.device('cuda:{}'.format(torch.cuda.device_count()-1)))
+    if conf.model_name == 'ViTPose':
+        logging.info('Initializing ViTPose Network')
+        pose_net = ViTPose(vitpose_config.model).cuda()
+        aux_net = AuxNet_ViTPose(arch=conf.architecture['aux_net'])
+        aux_net.cuda(torch.device('cuda:{}'.format(torch.cuda.device_count()-1)))
+        print('Number of parameters (ViTPose): {}\n'.format(count_parameters(pose_net)))
+    
+    else:
+        logging.info('Initializing Hourglass Network')
+        pose_net = Hourglass(arch=conf.architecture['hourglass'])
+        aux_net = AuxNet_HG(arch=conf.architecture['aux_net'])
+        aux_net.cuda(torch.device('cuda:{}'.format(torch.cuda.device_count()-1)))
+        print('Number of parameters (Hourglass): {}\n'.format(count_parameters(pose_net)))
 
     logging.info('Successful: Model transferred to GPUs.\n')
 
@@ -405,7 +424,7 @@ def main() -> None:
         training_pkg[method]['ll'] = torch.zeros(trials, dtype=torch.float32, device='cuda')
         training_pkg[method]['loss'] = torch.zeros((trials, epochs), device='cuda')
     training_pkg['training_methods'] = training_methods 
-
+    
 
     # 2. Loading datasets -----------------------------------------------------------------------------------
     logging.info('Loading pose dataset(s)\n')

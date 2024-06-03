@@ -6,12 +6,12 @@ import torch.nn as nn
 from torch.nn.parameter import Parameter
 
 
-class AuxNet(nn.Module):
+class AuxNet_HG(nn.Module):
     def __init__(self, arch):
         """
         Auxiliary network which predicts flattened matrix using intermediate outputs of the Hourglass
         """
-        super(AuxNet, self).__init__()
+        super(AuxNet_HG, self).__init__()
 
         self.fc_arch = arch['fc']
 
@@ -62,6 +62,7 @@ class AuxNet(nn.Module):
 
         return x
 
+
 class ConvolutionFeatureExtractor(nn.Module):
     def __init__(self, channels):
         super(ConvolutionFeatureExtractor, self).__init__()
@@ -93,3 +94,39 @@ class ConvolutionFeatureExtractor(nn.Module):
             x_ = x[i+1] + x_
 
         return x_.squeeze()
+
+
+class AuxNet_ViTPose(nn.Module):
+    def __init__(self, arch):
+        """
+        Auxiliary network which predicts flattened matrix using intermediate outputs of the Hourglass
+        """
+        super(AuxNet_ViTPose, self).__init__()
+
+        self.fc_arch = arch['fc']
+
+        # List that houses the network
+        self.pytorch_layers = []
+
+        # Initializing for input-output chaining across layers
+        input_nodes_fc_network = 64
+
+        in_feat = input_nodes_fc_network
+        for out_feat in self.fc_arch:
+            self.pytorch_layers.append(nn.Linear(in_features=in_feat, out_features=out_feat))
+            self.pytorch_layers.append(nn.ReLU())
+            in_feat = out_feat
+
+        self.pytorch_layers = self.pytorch_layers[:-1]  # Removing the ReLU after the output layer
+        self.pytorch_layers = nn.Sequential(*self.pytorch_layers)
+
+
+    def forward(self, x):
+        """
+
+        :param x:
+        :return:
+        """
+        x = x.squeeze()
+        x = self.pytorch_layers(x)
+        return x

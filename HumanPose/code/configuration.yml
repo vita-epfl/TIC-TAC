@@ -1,7 +1,9 @@
-experiment_name: "TIC-TAC"
+experiment_name: "None" # A folder with this name will be created in save_path
 
 trials: 1
-use_hessian: False
+model: "ViTPose" # One of ['Hourglass', 'ViTPose']
+
+use_hessian: False # Default: False, can also be True
 
 save_path: "None"
 
@@ -12,11 +14,12 @@ dataset: {
 }
 
 experiment_settings: {
-  epochs: 100,       # Default: 100
-  lr: 0.01,          # Default: 1e-2
+  epochs: 150,       # Default: 150
+  lr: 0.001,         # Default: {1e-2: Hoursglass, 1e-3: ViTPose}
   batch_size: 32,    # Default: 32
 }
 
+# ViTPose configuration is in models/vit_pose/vitpose_config.py
 architecture: {
   hourglass: {nstack: 2, channels: 64},
   aux_net: {fc: [64, 64, 64]}
